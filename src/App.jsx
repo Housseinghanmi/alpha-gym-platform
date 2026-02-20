@@ -13,6 +13,7 @@ function App() {
   const [role, setRole] = useState(null)
   const [loading, setLoading] = useState(true)
   const [activeView, setActiveView] = useState(null)
+  const [sidebarOpen, setSidebarOpen] = useState(false)
 
   useEffect(() => {
     const getUserRole = async (user) => {
@@ -96,33 +97,53 @@ function App() {
   }
 
   return (
-    <div className="min-h-screen bg-black text-white flex">
+    <div className="min-h-screen bg-black text-white flex overflow-hidden">
+
       <Sidebar
         role={role}
         activeView={activeView}
         onNavigate={setActiveView}
         onLogout={handleLogout}
+        isOpen={sidebarOpen}
+        onClose={() => setSidebarOpen(false)}
       />
 
-      <main className="flex-1 flex flex-col min-h-screen">
-        <header className="border-b border-zinc-800 px-8 py-4 flex items-center justify-between">
-          <div>
-            <h1 className="text-xl font-black text-white tracking-tight">
-              {viewTitles[activeView] || 'Dashboard'}
-            </h1>
-            <p className="text-xs text-zinc-500 mt-0.5 uppercase tracking-widest">
-              {roleLabel[role]}
-            </p>
+      {/* Main Content — always full width on mobile */}
+      <main className="flex-1 flex flex-col min-h-screen min-w-0">
+
+        {/* Top Bar */}
+        <header className="border-b border-zinc-800 px-4 md:px-8 py-4 flex items-center justify-between gap-3">
+          <div className="flex items-center gap-3 min-w-0">
+            {/* Hamburger — mobile only */}
+            <button
+              onClick={() => setSidebarOpen(true)}
+              className="md:hidden flex flex-col gap-1.5 p-1.5 text-zinc-400 hover:text-white transition-colors shrink-0"
+            >
+              <span className="block w-5 h-0.5 bg-current" />
+              <span className="block w-5 h-0.5 bg-current" />
+              <span className="block w-5 h-0.5 bg-current" />
+            </button>
+
+            <div className="min-w-0">
+              <h1 className="text-base md:text-xl font-black text-white tracking-tight truncate">
+                {viewTitles[activeView] || 'Dashboard'}
+              </h1>
+              <p className="text-xs text-zinc-500 uppercase tracking-widest hidden sm:block">
+                {roleLabel[role]}
+              </p>
+            </div>
           </div>
-          <div className="flex items-center gap-3">
+
+          <div className="flex items-center gap-2 md:gap-3 shrink-0">
             <LanguageSwitcher />
-            <span className="text-xs bg-zinc-900 border border-zinc-800 px-3 py-1.5 rounded-lg text-orange-500 font-mono uppercase tracking-widest">
+            <span className="text-xs bg-zinc-900 border border-zinc-800 px-2 md:px-3 py-1.5 rounded-lg text-orange-500 font-mono uppercase tracking-widest">
               {role}
             </span>
           </div>
         </header>
 
-        <div className="flex-1 p-8">
+        {/* Page Content */}
+        <div className="flex-1 p-4 md:p-8">
           {renderView()}
         </div>
       </main>
