@@ -5,44 +5,47 @@ import Login from './Login'
 import AddMember from './AddMember'
 import Sidebar from './Sidebar'
 import AdminPanel from './AdminPanel'
+import SetPassword from './SetPassword'
 import LanguageSwitcher from './components/LanguageSwitcher'
 
 function App() {
   const { t } = useLanguage()
   const [session, setSession] = useState(null)
-  const [role, setRole] = useState(null)
+  const [profile, setProfile] = useState(null)
   const [loading, setLoading] = useState(true)
   const [activeView, setActiveView] = useState(null)
   const [sidebarOpen, setSidebarOpen] = useState(false)
 
   useEffect(() => {
-    const getUserRole = async (user) => {
+    const getUserProfile = async (user) => {
       const { data } = await supabase
         .from('profiles')
-        .select('role')
+        .select('role, first_login')
         .eq('id', user.id)
         .single()
 
       if (data) {
-        setRole(data.role)
-        if (data.role === 'admin') setActiveView('manage-owners')
-        else if (data.role === 'owner') setActiveView('add-member')
-        else if (data.role === 'coach') setActiveView('my-clients')
+        setProfile(data)
+        if (!data.first_login) {
+          if (data.role === 'admin') setActiveView('manage-owners')
+          else if (data.role === 'owner') setActiveView('add-member')
+          else if (data.role === 'coach') setActiveView('my-clients')
+        }
       }
       setLoading(false)
     }
 
     supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session)
-      if (session) getUserRole(session.user)
+      if (session) getUserProfile(session.user)
       else setLoading(false)
     })
 
     const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
       setSession(session)
-      if (session) getUserRole(session.user)
+      if (session) getUserProfile(session.user)
       else {
-        setRole(null)
+        setProfile(null)
         setActiveView(null)
         setLoading(false)
       }
@@ -65,6 +68,18 @@ function App() {
   }
 
   if (!session) return <Login />
+
+  // First login — force password setup
+  if (profile?.first_login) {
+    return (
+      <SetPassword
+        userId={session.user.id}
+        onComplete={() => setProfile(p => ({ ...p, first_login: false }))}
+      />
+    )
+  }
+
+  const role = profile?.role
 
   const viewTitles = {
     'manage-owners': t('view_manage_owners'),
@@ -98,7 +113,6 @@ function App() {
 
   return (
     <div className="min-h-screen bg-black text-white flex overflow-hidden">
-
       <Sidebar
         role={role}
         activeView={activeView}
@@ -108,13 +122,9 @@ function App() {
         onClose={() => setSidebarOpen(false)}
       />
 
-      {/* Main Content — always full width on mobile */}
       <main className="flex-1 flex flex-col min-h-screen min-w-0">
-
-        {/* Top Bar */}
         <header className="border-b border-zinc-800 px-4 md:px-8 py-4 flex items-center justify-between gap-3">
           <div className="flex items-center gap-3 min-w-0">
-            {/* Hamburger — mobile only */}
             <button
               onClick={() => setSidebarOpen(true)}
               className="md:hidden flex flex-col gap-1.5 p-1.5 text-zinc-400 hover:text-white transition-colors shrink-0"
@@ -123,7 +133,6 @@ function App() {
               <span className="block w-5 h-0.5 bg-current" />
               <span className="block w-5 h-0.5 bg-current" />
             </button>
-
             <div className="min-w-0">
               <h1 className="text-base md:text-xl font-black text-white tracking-tight truncate">
                 {viewTitles[activeView] || 'Dashboard'}
@@ -133,7 +142,6 @@ function App() {
               </p>
             </div>
           </div>
-
           <div className="flex items-center gap-2 md:gap-3 shrink-0">
             <LanguageSwitcher />
             <span className="text-xs bg-zinc-900 border border-zinc-800 px-2 md:px-3 py-1.5 rounded-lg text-orange-500 font-mono uppercase tracking-widest">
@@ -142,7 +150,6 @@ function App() {
           </div>
         </header>
 
-        {/* Page Content */}
         <div className="flex-1 p-4 md:p-8">
           {renderView()}
         </div>
