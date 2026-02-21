@@ -39,6 +39,9 @@ export default function AdminPanel() {
     const tempPassword = generateTempPassword()
 
     try {
+      // 0. Save admin session BEFORE signUp switches it
+      const { data: { session: adminSession } } = await supabase.auth.getSession()
+
       // 1. Create user account with temp password
       const { data: signUpData, error: signUpError } = await supabase.auth.signUp({
         email: form.email,
@@ -48,14 +51,20 @@ export default function AdminPanel() {
 
       const newUserId = signUpData.user.id
 
-      // 2. Create the gym
+      // 2. Restore admin session immediately (signUp switches session when email confirm is OFF)
+      await supabase.auth.setSession({
+        access_token: adminSession.access_token,
+        refresh_token: adminSession.refresh_token,
+      })
+
+      // 3. Create the gym (now running as admin again)
       const { data: gymData, error: gymError } = await supabase
         .from('gyms')
         .insert([{ name: form.gymName, location: form.location, owner_id: newUserId }])
         .select().single()
       if (gymError) throw gymError
 
-      // 3. Create profile with first_login: true
+      // 4. Create profile with first_login: true
       const { error: profileError } = await supabase
         .from('profiles')
         .upsert([{
