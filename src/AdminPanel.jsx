@@ -57,25 +57,31 @@ export default function AdminPanel() {
         refresh_token: adminSession.refresh_token,
       })
 
-      // 3. Create the gym (now running as admin again)
-      const { data: gymData, error: gymError } = await supabase
-        .from('gyms')
-        .insert([{ name: form.gymName, location: form.location, owner_id: newUserId }])
-        .select().single()
-      if (gymError) throw gymError
-
-      // 4. Create profile with first_login: true
+      // 3. Create profile FIRST (gyms.owner_id references profiles.id)
       const { error: profileError } = await supabase
         .from('profiles')
         .upsert([{
           id: newUserId,
           full_name: '',
           role: 'owner',
-          gym_id: gymData.id,
           phone: form.phone,
           first_login: true,
         }])
       if (profileError) throw profileError
+
+      // 4. Now create the gym (profile exists, FK will pass)
+      const { data: gymData, error: gymError } = await supabase
+        .from('gyms')
+        .insert([{ name: form.gymName, location: form.location, owner_id: newUserId }])
+        .select().single()
+      if (gymError) throw gymError
+
+      // 5. Update profile with gym_id
+      const { error: updateError } = await supabase
+        .from('profiles')
+        .update({ gym_id: gymData.id })
+        .eq('id', newUserId)
+      if (updateError) throw updateError
 
       // Show credentials to admin
       setCreatedCreds({ email: form.email, password: tempPassword })
