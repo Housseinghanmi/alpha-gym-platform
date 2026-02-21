@@ -1,14 +1,23 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useMemo } from 'react'
 import { supabase } from './supabaseClient'
 import { useLanguage } from './context/LanguageContext'
 
+// --- Helpers ---
 const getStatus = (endDate) => {
-  const today = new Date()
-  const end = new Date(endDate)
-  const daysLeft = Math.ceil((end - today) / (1000 * 60 * 60 * 24))
-  if (daysLeft < 0) return { label: 'expired', days: daysLeft }
-  if (daysLeft <= 7) return { label: 'expiring', days: daysLeft }
-  return { label: 'active', days: daysLeft }
+  if (!endDate) return { label: 'expired', days: 0 }
+  
+  const today = new Date();
+  today.setHours(0, 0, 0, 0);
+  
+  const end = new Date(endDate);
+  end.setHours(0, 0, 0, 0);
+  
+  const diffTime = end - today;
+  const daysLeft = Math.ceil(diffTime / (1000 * 60 * 60 * 24));
+  
+  if (daysLeft < 0) return { label: 'expired', days: daysLeft };
+  if (daysLeft <= 7) return { label: 'expiring', days: daysLeft };
+  return { label: 'active', days: daysLeft };
 }
 
 const StatusBadge = ({ endDate }) => {
@@ -20,7 +29,7 @@ const StatusBadge = ({ endDate }) => {
     expired: 'bg-red-500/10 border border-red-500/30 text-red-400',
   }
   return (
-    <span className={`text-xs px-2 py-1 rounded-md font-mono whitespace-nowrap ${styles[label]}`}>
+    <span className={`text-[10px] uppercase px-2 py-0.5 rounded-full font-bold whitespace-nowrap ${styles[label]}`}>
       {t(`status_${label}`)}
     </span>
   )
@@ -33,51 +42,60 @@ export default function MemberList() {
   const [members, setMembers] = useState([])
   const [coaches, setCoaches] = useState([])
   const [loading, setLoading] = useState(true)
+  const [activeTab, setActiveTab] = useState('members')
   const [editingMember, setEditingMember] = useState(null)
   const [deleteConfirm, setDeleteConfirm] = useState(null)
   const [saving, setSaving] = useState(false)
   const [search, setSearch] = useState('')
   const [filterStatus, setFilterStatus] = useState('all')
 
-  const fetchMembers = async () => {
+  const fetchInitialData = async () => {
     setLoading(true)
-    const { data: { user } } = await supabase.auth.getUser()
+    try {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) return
 
-    const { data: profile } = await supabase
-      .from('profiles')
-      .select('gym_id')
-      .eq('id', user.id)
-      .single()
-
-    const [{ data: membersData }, { data: coachesData }] = await Promise.all([
-      supabase
-        .from('members')
-        .select('*, coach:coach_id(id, full_name)')
+      const { data: gym } = await supabase
+        .from('gyms')
+        .select('id')
         .eq('owner_id', user.id)
-        .order('created_at', { ascending: false }),
-      supabase
-        .from('profiles')
-        .select('id, full_name')
-        .eq('role', 'coach')
-        .eq('gym_id', profile?.gym_id)
-    ])
+        .single()
 
-    setMembers(membersData || [])
-    setCoaches(coachesData || [])
-    setLoading(false)
+      const [membersRes, coachesRes] = await Promise.all([
+        supabase
+          .from('members')
+          .select('*, coach:coach_id(id, full_name)')
+          .eq('owner_id', user.id)
+          .order('created_at', { ascending: false }),
+        supabase
+          .from('profiles')
+          .select('id, full_name, phone')
+          .eq('role', 'coach')
+          .eq('gym_id', gym?.id)
+      ])
+
+      setMembers(membersRes.data || [])
+      setCoaches(coachesRes.data || [])
+    } catch (error) {
+      console.error("Error fetching data:", error)
+    } finally {
+      setLoading(false)
+    }
   }
 
-  useEffect(() => { fetchMembers() }, [])
+  useEffect(() => { fetchInitialData() }, [])
 
   const handleDelete = async (id) => {
-    await supabase.from('members').delete().eq('id', id)
-    setDeleteConfirm(null)
-    fetchMembers()
+    const { error } = await supabase.from('members').delete().eq('id', id)
+    if (!error) {
+      setDeleteConfirm(null)
+      fetchInitialData()
+    }
   }
 
   const handleSave = async () => {
     setSaving(true)
-    await supabase
+    const { error } = await supabase
       .from('members')
       .update({
         full_name: editingMember.full_name,
@@ -88,179 +106,191 @@ export default function MemberList() {
         discipline: editingMember.discipline,
       })
       .eq('id', editingMember.id)
+
+    if (!error) {
+      setEditingMember(null)
+      fetchInitialData()
+    }
     setSaving(false)
-    setEditingMember(null)
-    fetchMembers()
   }
 
-  const filtered = members.filter(m => {
-    const matchSearch = m.full_name?.toLowerCase().includes(search.toLowerCase()) ||
-      m.phone?.includes(search) ||
-      m.discipline?.toLowerCase().includes(search.toLowerCase())
-    const matchStatus = filterStatus === 'all' || getStatus(m.membership_end).label === filterStatus
-    return matchSearch && matchStatus
-  })
+  const filteredMembers = useMemo(() => {
+    return members.filter(m => {
+      const searchStr = search.toLowerCase()
+      const matchSearch = 
+        m.full_name?.toLowerCase().includes(searchStr) ||
+        m.phone?.includes(search) ||
+        m.discipline?.toLowerCase().includes(searchStr)
+      
+      const statusLabel = getStatus(m.membership_end).label
+      const matchStatus = filterStatus === 'all' || statusLabel === filterStatus
+      
+      return matchSearch && matchStatus
+    })
+  }, [members, search, filterStatus])
 
   return (
-    <div className="space-y-4">
-
-      {/* Search + Filter Bar */}
-      <div className="flex flex-col sm:flex-row gap-3">
-        <input
-          type="text"
-          placeholder={t('members_search')}
-          value={search}
-          onChange={e => setSearch(e.target.value)}
-          className="flex-1 bg-zinc-900 border border-zinc-800 text-white placeholder-zinc-600 rounded-xl px-4 py-2.5 text-sm focus:outline-none focus:border-orange-500 transition-colors"
-        />
-        <div className="flex gap-2">
-          {['all', 'active', 'expiring', 'expired'].map(s => (
-            <button
-              key={s}
-              onClick={() => setFilterStatus(s)}
-              className={`px-3 py-2 rounded-lg text-xs font-medium transition-colors ${
-                filterStatus === s
-                  ? 'bg-orange-500 text-black'
-                  : 'bg-zinc-900 border border-zinc-800 text-zinc-400 hover:text-white'
-              }`}
-            >
-              {t(`status_${s}`)}
-            </button>
-          ))}
-        </div>
+    <div className="space-y-6">
+      {/* Tab Navigation */}
+      <div className="flex gap-4 border-b border-zinc-800">
+        {['members', 'coaches'].map((tab) => (
+          <button
+            key={tab}
+            onClick={() => { setActiveTab(tab); setSearch(''); }}
+            className={`pb-4 text-sm font-bold transition-all border-b-2 px-2 ${
+              activeTab === tab ? 'border-orange-500 text-orange-500' : 'border-transparent text-zinc-500 hover:text-white'
+            }`}
+          >
+            {tab === 'members' ? t('nav_all_members') : t('nav_coaches')}
+          </button>
+        ))}
       </div>
 
-      {/* Table */}
-      {loading ? (
-        <div className="text-zinc-500 animate-pulse p-4">{t('loading')}</div>
-      ) : filtered.length === 0 ? (
-        <div className="text-center py-12 border-2 border-dashed border-zinc-800 rounded-xl text-zinc-600 text-sm">
-          {t('members_empty')}
-        </div>
-      ) : (
-        <div className="bg-zinc-900 border border-zinc-800 rounded-2xl overflow-hidden">
-          {/* Desktop Table */}
-          <div className="hidden md:block overflow-x-auto">
-            <table className="w-full">
-              <thead>
-                <tr className="border-b border-zinc-800">
-                  <th className="text-left text-xs text-zinc-500 uppercase tracking-widest px-4 py-3">{t('col_name')}</th>
-                  <th className="text-left text-xs text-zinc-500 uppercase tracking-widest px-4 py-3">{t('col_phone')}</th>
-                  <th className="text-left text-xs text-zinc-500 uppercase tracking-widest px-4 py-3">{t('col_discipline')}</th>
-                  <th className="text-left text-xs text-zinc-500 uppercase tracking-widest px-4 py-3">{t('col_start')}</th>
-                  <th className="text-left text-xs text-zinc-500 uppercase tracking-widest px-4 py-3">{t('col_end')}</th>
-                  <th className="text-left text-xs text-zinc-500 uppercase tracking-widest px-4 py-3">{t('col_days')}</th>
-                  <th className="text-left text-xs text-zinc-500 uppercase tracking-widest px-4 py-3">{t('col_coach')}</th>
-                  <th className="text-left text-xs text-zinc-500 uppercase tracking-widest px-4 py-3">{t('col_status')}</th>
-                  <th className="px-4 py-3"></th>
-                </tr>
-              </thead>
-              <tbody>
-                {filtered.map((member, i) => {
-                  const { days } = getStatus(member.membership_end)
-                  return (
-                    <tr key={member.id} className={`border-b border-zinc-800/50 hover:bg-zinc-800/50 transition-colors ${i % 2 === 0 ? '' : 'bg-zinc-800/20'}`}>
-                      <td className="px-4 py-3 text-white text-sm font-medium">{member.full_name}</td>
-                      <td className="px-4 py-3 text-zinc-400 text-sm">{member.phone || '—'}</td>
-                      <td className="px-4 py-3 text-zinc-400 text-sm">{member.discipline || '—'}</td>
-                      <td className="px-4 py-3 text-zinc-400 text-sm">{member.membership_start || '—'}</td>
-                      <td className="px-4 py-3 text-zinc-400 text-sm">{member.membership_end || '—'}</td>
-                      <td className="px-4 py-3 text-zinc-400 text-sm">
-                        {days >= 0 ? `${days}d` : `${Math.abs(days)}d ${t('days_ago')}`}
-                      </td>
-                      <td className="px-4 py-3 text-zinc-400 text-sm">{member.coach?.full_name || '—'}</td>
-                      <td className="px-4 py-3"><StatusBadge endDate={member.membership_end} /></td>
-                      <td className="px-4 py-3">
-                        <div className="flex gap-2">
-                          <button onClick={() => setEditingMember(member)}
-                            className="text-xs text-zinc-400 hover:text-orange-400 transition-colors">✏️</button>
-                          <button onClick={() => setDeleteConfirm(member.id)}
-                            className="text-xs text-zinc-400 hover:text-red-400 transition-colors">🗑️</button>
-                        </div>
-                      </td>
-                    </tr>
-                  )
-                })}
-              </tbody>
-            </table>
+      {activeTab === 'members' ? (
+        <>
+          {/* Filters */}
+          <div className="flex flex-col md:flex-row gap-4">
+            <input
+              type="text"
+              placeholder={t('members_search')}
+              value={search}
+              onChange={e => setSearch(e.target.value)}
+              className="flex-1 bg-zinc-900 border border-zinc-800 rounded-xl px-4 py-3 text-sm focus:border-orange-500 transition-all outline-none"
+            />
+            <div className="flex bg-zinc-900 p-1 rounded-xl border border-zinc-800">
+              {['all', 'active', 'expiring', 'expired'].map(s => (
+                <button
+                  key={s}
+                  onClick={() => setFilterStatus(s)}
+                  className={`px-4 py-1.5 rounded-lg text-[10px] uppercase font-bold transition-all ${
+                    filterStatus === s ? 'bg-orange-500 text-black' : 'text-zinc-500 hover:text-white'
+                  }`}
+                >
+                  {t(`status_${s}`)}
+                </button>
+              ))}
+            </div>
           </div>
 
-          {/* Mobile Cards */}
-          <div className="md:hidden divide-y divide-zinc-800">
-            {filtered.map(member => {
-              const { days } = getStatus(member.membership_end)
-              return (
-                <div key={member.id} className="p-4 space-y-2">
-                  <div className="flex items-center justify-between">
-                    <p className="text-white font-medium">{member.full_name}</p>
-                    <StatusBadge endDate={member.membership_end} />
-                  </div>
-                  <p className="text-zinc-500 text-xs">{member.phone} · {member.discipline || '—'}</p>
-                  <p className="text-zinc-500 text-xs">{member.membership_start} → {member.membership_end}</p>
-                  <p className="text-zinc-500 text-xs">{t('col_coach')}: {member.coach?.full_name || '—'}</p>
-                  <p className="text-zinc-500 text-xs">
-                    {days >= 0 ? `${days} ${t('days_left')}` : `${Math.abs(days)}d ${t('days_ago')}`}
-                  </p>
-                  <div className="flex gap-3 pt-1">
-                    <button onClick={() => setEditingMember(member)}
-                      className="text-xs text-orange-400 hover:text-orange-300">✏️ {t('action_edit')}</button>
-                    <button onClick={() => setDeleteConfirm(member.id)}
-                      className="text-xs text-red-400 hover:text-red-300">🗑️ {t('action_delete')}</button>
-                  </div>
+          {/* Table */}
+          {loading ? (
+            <div className="text-center py-10 text-zinc-600 animate-pulse">{t('loading')}</div>
+          ) : filteredMembers.length === 0 ? (
+            <div className="text-center py-20 bg-zinc-900/50 rounded-2xl border-2 border-dashed border-zinc-800 text-zinc-500">
+              {t('members_empty')}
+            </div>
+          ) : (
+            <div className="bg-zinc-900 border border-zinc-800 rounded-2xl overflow-hidden">
+              <div className="overflow-x-auto">
+                <table className="w-full text-left border-collapse">
+                  <thead className="bg-zinc-950/50 text-zinc-500 text-[10px] uppercase tracking-tighter font-black">
+                    <tr>
+                      <th className="px-6 py-4">{t('col_name')}</th>
+                      <th className="px-6 py-4">{t('col_discipline')}</th>
+                      <th className="px-6 py-4">{t('col_end')}</th>
+                      <th className="px-6 py-4">{t('col_coach')}</th>
+                      <th className="px-6 py-4">{t('col_status')}</th>
+                      <th className="px-6 py-4 text-right">ACTIONS</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-zinc-800/50 text-sm">
+                    {filteredMembers.map((member) => (
+                      <tr key={member.id} className="hover:bg-zinc-800/30 transition-colors">
+                        <td className="px-6 py-4 font-medium text-white">
+                          {member.full_name}
+                          <div className="text-[10px] text-zinc-500 font-normal">{member.phone}</div>
+                        </td>
+                        <td className="px-6 py-4 text-zinc-400">{member.discipline || '—'}</td>
+                        <td className="px-6 py-4 text-zinc-400">
+                           {member.membership_end}
+                           <div className="text-[10px] text-zinc-600">
+                             {getStatus(member.membership_end).days}j restant(s)
+                           </div>
+                        </td>
+                        <td className="px-6 py-4 text-zinc-400">{member.coach?.full_name || '—'}</td>
+                        <td className="px-6 py-4"><StatusBadge endDate={member.membership_end} /></td>
+                        <td className="px-6 py-4 text-right">
+                          <div className="flex justify-end gap-3">
+                            <button onClick={() => setEditingMember(member)} className="hover:text-orange-500 transition-colors">✏️</button>
+                            <button onClick={() => setDeleteConfirm(member.id)} className="hover:text-red-500 transition-colors">🗑️</button>
+                          </div>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+        </>
+      ) : (
+        /* Coaches Tab */
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+          {loading ? (
+            <div className="col-span-full text-center py-10 text-zinc-600 animate-pulse">{t('loading')}</div>
+          ) : coaches.length === 0 ? (
+            <div className="col-span-full text-center py-10 text-zinc-600">{t('coaches_empty')}</div>
+          ) : (
+            coaches.map(coach => (
+              <div key={coach.id} className="bg-zinc-900 border border-zinc-800 p-5 rounded-2xl flex justify-between items-center transition-all hover:border-orange-500/50">
+                <div>
+                  <h4 className="text-white font-bold">{coach.full_name}</h4>
+                  <p className="text-zinc-500 text-xs mt-1">{coach.phone || '—'}</p>
                 </div>
-              )
-            })}
-          </div>
+                <div className="h-10 w-10 bg-orange-500/10 text-orange-500 rounded-full flex items-center justify-center font-black">
+                  {coach.full_name?.charAt(0)}
+                </div>
+              </div>
+            ))
+          )}
         </div>
       )}
 
       {/* Edit Modal */}
       {editingMember && (
-        <div className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4">
+        <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4 backdrop-blur-sm">
           <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6 w-full max-w-md space-y-4">
             <h3 className="text-white font-bold text-lg">{t('edit_member_title')}</h3>
-
-            {[
-              { label: t('col_name'), field: 'full_name', type: 'text' },
-              { label: t('col_phone'), field: 'phone', type: 'tel' },
-              { label: t('col_start'), field: 'membership_start', type: 'date' },
-              { label: t('col_end'), field: 'membership_end', type: 'date' },
-            ].map(({ label, field, type }) => (
-              <div key={field}>
-                <label className="text-xs text-zinc-400 uppercase tracking-widest block mb-1.5">{label}</label>
-                <input type={type} value={editingMember[field] || ''}
-                  onChange={e => setEditingMember(m => ({ ...m, [field]: e.target.value }))}
-                  className="w-full bg-zinc-800 border border-zinc-700 text-white rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:border-orange-500 transition-colors" />
+            <div className="space-y-3">
+              <input 
+                className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-4 py-2 text-white outline-none focus:border-orange-500"
+                value={editingMember.full_name || ''} 
+                onChange={e => setEditingMember({...editingMember, full_name: e.target.value})}
+                placeholder={t('col_name')}
+              />
+              <input 
+                className="w-full bg-zinc-800 border border-zinc-700 rounded-lg px-4 py-2 text-white outline-none focus:border-orange-500"
+                value={editingMember.phone || ''} 
+                onChange={e => setEditingMember({...editingMember, phone: e.target.value})}
+                placeholder={t('col_phone')}
+              />
+              <div className="grid grid-cols-2 gap-3">
+                <input 
+                  type="date"
+                  className="bg-zinc-800 border border-zinc-700 rounded-lg px-4 py-2 text-white outline-none focus:border-orange-500"
+                  value={editingMember.membership_start || ''} 
+                  onChange={e => setEditingMember({...editingMember, membership_start: e.target.value})}
+                />
+                <input 
+                  type="date"
+                  className="bg-zinc-800 border border-zinc-700 rounded-lg px-4 py-2 text-white outline-none focus:border-orange-500"
+                  value={editingMember.membership_end || ''} 
+                  onChange={e => setEditingMember({...editingMember, membership_end: e.target.value})}
+                />
               </div>
-            ))}
-
-            <div>
-              <label className="text-xs text-zinc-400 uppercase tracking-widest block mb-1.5">{t('col_discipline')}</label>
-              <select value={editingMember.discipline || ''}
-                onChange={e => setEditingMember(m => ({ ...m, discipline: e.target.value }))}
-                className="w-full bg-zinc-800 border border-zinc-700 text-white rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:border-orange-500 transition-colors">
-                <option value="">—</option>
-                {DISCIPLINES.map(d => <option key={d} value={d}>{d}</option>)}
-              </select>
             </div>
-
-            <div>
-              <label className="text-xs text-zinc-400 uppercase tracking-widest block mb-1.5">{t('col_coach')}</label>
-              <select value={editingMember.coach_id || ''}
-                onChange={e => setEditingMember(m => ({ ...m, coach_id: e.target.value }))}
-                className="w-full bg-zinc-800 border border-zinc-700 text-white rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:border-orange-500 transition-colors">
-                <option value="">— {t('no_coach')} —</option>
-                {coaches.map(c => <option key={c.id} value={c.id}>{c.full_name}</option>)}
-              </select>
-            </div>
-
             <div className="flex gap-3 pt-2">
-              <button onClick={handleSave} disabled={saving}
-                className="flex-1 bg-orange-500 hover:bg-orange-400 disabled:opacity-50 text-black font-bold py-2.5 rounded-lg text-sm transition-colors">
+              <button 
+                onClick={handleSave}
+                disabled={saving}
+                className="flex-1 bg-orange-500 text-black font-bold py-2 rounded-lg hover:bg-orange-400 transition-colors disabled:opacity-50"
+              >
                 {saving ? t('saving') : t('action_save')}
               </button>
-              <button onClick={() => setEditingMember(null)}
-                className="flex-1 bg-zinc-800 hover:bg-zinc-700 text-white py-2.5 rounded-lg text-sm transition-colors">
+              <button 
+                onClick={() => setEditingMember(null)}
+                className="flex-1 bg-zinc-800 text-white py-2 rounded-lg hover:bg-zinc-700 transition-colors"
+              >
                 {t('action_cancel')}
               </button>
             </div>
@@ -268,20 +298,24 @@ export default function MemberList() {
         </div>
       )}
 
-      {/* Delete Confirm Modal */}
+      {/* Delete Modal */}
       {deleteConfirm && (
-        <div className="fixed inset-0 bg-black/70 z-50 flex items-center justify-center p-4">
-          <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6 w-full max-w-sm text-center space-y-4">
-            <p className="text-2xl">⚠️</p>
-            <p className="text-white font-bold">{t('delete_confirm_title')}</p>
-            <p className="text-zinc-500 text-sm">{t('delete_confirm_subtitle')}</p>
+        <div className="fixed inset-0 bg-black/80 z-50 flex items-center justify-center p-4 backdrop-blur-sm">
+          <div className="bg-zinc-900 border border-zinc-800 rounded-2xl p-6 w-full max-w-sm text-center">
+            <div className="w-16 h-16 bg-red-500/10 text-red-500 rounded-full flex items-center justify-center mx-auto mb-4 text-2xl">⚠️</div>
+            <h3 className="text-white font-bold text-lg mb-2">{t('delete_confirm_title')}</h3>
+            <p className="text-zinc-500 text-sm mb-6">{t('delete_confirm_subtitle')}</p>
             <div className="flex gap-3">
-              <button onClick={() => handleDelete(deleteConfirm)}
-                className="flex-1 bg-red-500 hover:bg-red-400 text-white font-bold py-2.5 rounded-lg text-sm transition-colors">
+              <button 
+                onClick={() => handleDelete(deleteConfirm)}
+                className="flex-1 bg-red-500 text-white font-bold py-2 rounded-lg hover:bg-red-400 transition-colors"
+              >
                 {t('action_delete')}
               </button>
-              <button onClick={() => setDeleteConfirm(null)}
-                className="flex-1 bg-zinc-800 hover:bg-zinc-700 text-white py-2.5 rounded-lg text-sm transition-colors">
+              <button 
+                onClick={() => setDeleteConfirm(null)}
+                className="flex-1 bg-zinc-800 text-white py-2 rounded-lg hover:bg-zinc-700 transition-colors"
+              >
                 {t('action_cancel')}
               </button>
             </div>

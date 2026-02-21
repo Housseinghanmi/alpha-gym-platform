@@ -26,19 +26,20 @@ export default function CoachesList() {
     const { data: { user } } = await supabase.auth.getUser()
     setOwnerId(user.id)
 
-    const { data: profile } = await supabase
-      .from('profiles')
-      .select('gym_id')
-      .eq('id', user.id)
+    // Fetch the gym owned by this user
+    const { data: gym } = await supabase
+      .from('gyms')
+      .select('id')
+      .eq('owner_id', user.id)
       .single()
 
-    setGymId(profile?.gym_id)
+    setGymId(gym?.id)
 
     const { data } = await supabase
       .from('profiles')
       .select('id, full_name, phone, first_login')
       .eq('role', 'coach')
-      .eq('gym_id', profile?.gym_id)
+      .eq('gym_id', gym?.id)
 
     setCoaches(data || [])
     setLoading(false)
@@ -55,6 +56,17 @@ export default function CoachesList() {
     const tempPassword = generateTempPassword()
 
     try {
+      const { data: { user } } = await supabase.auth.getUser()
+
+      // Fetch the gym owned by this user
+      const { data: gym } = await supabase
+        .from('gyms')
+        .select('id')
+        .eq('owner_id', user.id)
+        .single()
+
+      if (!gym) throw new Error('No gym found for this owner')
+
       const { data: { session: ownerSession } } = await supabase.auth.getSession()
 
       const { data: signUpData, error: signUpError } = await supabase.auth.signUp({
@@ -76,7 +88,7 @@ export default function CoachesList() {
           id: newUserId,
           full_name: form.fullName,
           role: 'coach',
-          gym_id: gymId,
+          gym_id: gym.id,
           phone: form.phone,
           first_login: true,
         }])
@@ -84,6 +96,7 @@ export default function CoachesList() {
 
       setCreatedCreds({ email: form.email, password: tempPassword })
       setForm({ email: '', fullName: '', phone: '' })
+      setMessage({ type: 'success', text: t('coach_created_success') })
       fetchCoaches()
     } catch (err) {
       setMessage({ type: 'error', text: err.message })
@@ -128,7 +141,11 @@ export default function CoachesList() {
           </div>
 
           {message && (
-            <div className="bg-red-500/10 border border-red-500/30 text-red-400 rounded-lg px-4 py-3 text-sm">
+            <div className={`rounded-lg px-4 py-3 text-sm ${
+              message.type === 'success'
+                ? 'bg-green-500/10 border border-green-500/30 text-green-400'
+                : 'bg-red-500/10 border border-red-500/30 text-red-400'
+            }`}>
               {message.text}
             </div>
           )}

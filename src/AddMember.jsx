@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { supabase } from './supabaseClient'
 import { useLanguage } from './context/LanguageContext'
 
@@ -6,9 +6,31 @@ const DISCIPLINES = ['Bodybuilding', 'CrossFit', 'Taekwondo', 'Boxing', 'Yoga', 
 
 export default function AddMember() {
   const { t } = useLanguage()
-  const [form, setForm] = useState({ fullName: '', phone: '', endDate: '', discipline: '' })
+  const [form, setForm] = useState({ fullName: '', phone: '', endDate: '', discipline: '', coachId: '' })
+  const [coaches, setCoaches] = useState([])
   const [loading, setLoading] = useState(false)
   const [message, setMessage] = useState(null)
+
+  const fetchCoaches = async () => {
+    const { data: { user } } = await supabase.auth.getUser()
+    
+    // Fetch the gym owned by this user
+    const { data: gym } = await supabase
+      .from('gyms')
+      .select('id')
+      .eq('owner_id', user.id)
+      .single()
+
+    const { data } = await supabase
+      .from('profiles')
+      .select('id, full_name')
+      .eq('role', 'coach')
+      .eq('gym_id', gym?.id)
+
+    setCoaches(data || [])
+  }
+
+  useEffect(() => { fetchCoaches() }, [])
 
   const set = (field) => (e) => setForm(f => ({ ...f, [field]: e.target.value }))
 
@@ -23,12 +45,13 @@ export default function AddMember() {
       membership_end: form.endDate,
       membership_start: new Date().toISOString().split('T')[0],
       discipline: form.discipline,
+      coach_id: form.coachId || null,
       owner_id: user.id,
     }])
     if (error) setMessage({ type: 'error', text: error.message })
     else {
       setMessage({ type: 'success', text: t('add_success') })
-      setForm({ fullName: '', phone: '', endDate: '', discipline: '' })
+      setForm({ fullName: '', phone: '', endDate: '', discipline: '', coachId: '' })
     }
     setLoading(false)
   }
@@ -65,6 +88,14 @@ export default function AddMember() {
           <div>
             <label className="text-xs text-gray-500 dark:text-zinc-400 uppercase tracking-widest block mb-1.5">{t('add_membership_end')}</label>
             <input type="date" value={form.endDate} onChange={set('endDate')} required className={inputClass} />
+          </div>
+
+          <div>
+            <label className="text-xs text-gray-500 dark:text-zinc-400 uppercase tracking-widest block mb-1.5">{t('col_coach')}</label>
+            <select value={form.coachId} onChange={set('coachId')} className={inputClass}>
+              <option value="">— {t('select_coach')} —</option>
+              {coaches.map(coach => <option key={coach.id} value={coach.id}>{coach.full_name}</option>)}
+            </select>
           </div>
 
           {message && (
