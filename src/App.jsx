@@ -3,6 +3,9 @@ import { supabase } from './supabaseClient'
 import { useLanguage } from './context/LanguageContext'
 import Login from './Login'
 import AddMember from './AddMember'
+import MemberList from './MemberList'
+import CoachesList from './CoachesList'
+import OwnerDashboard from './OwnerDashboard'
 import Sidebar from './Sidebar'
 import AdminPanel from './AdminPanel'
 import SetPassword from './SetPassword'
@@ -28,7 +31,7 @@ function App() {
         setProfile(data)
         if (!data.first_login) {
           if (data.role === 'admin') setActiveView('manage-owners')
-          else if (data.role === 'owner') setActiveView('add-member')
+          else if (data.role === 'owner') setActiveView('dashboard')
           else if (data.role === 'coach') setActiveView('my-clients')
         }
       }
@@ -69,7 +72,6 @@ function App() {
 
   if (!session) return <Login />
 
-  // First login — force password setup
   if (profile?.first_login) {
     return (
       <SetPassword
@@ -83,6 +85,7 @@ function App() {
 
   const viewTitles = {
     'manage-owners': t('view_manage_owners'),
+    'dashboard': t('view_dashboard'),
     'add-member': t('view_add_member'),
     'all-members': t('view_all_members'),
     'coaches': t('view_coaches'),
@@ -98,13 +101,14 @@ function App() {
   const renderView = () => {
     switch (activeView) {
       case 'manage-owners': return <AdminPanel />
+      case 'dashboard': return <OwnerDashboard />
       case 'add-member': return <AddMember />
-      case 'all-members':
-      case 'coaches':
+      case 'all-members': return <MemberList />
+      case 'coaches': return <CoachesList />
       case 'my-clients':
         return (
           <div className="p-8 border-2 border-dashed border-zinc-800 rounded-xl text-center text-zinc-500">
-            {viewTitles[activeView]} — {t('coming_next')}
+            {viewTitles['my-clients']} — {t('coming_next')}
           </div>
         )
       default: return null

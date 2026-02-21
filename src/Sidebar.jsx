@@ -23,15 +23,10 @@ export default function Sidebar({ role, activeView, onNavigate, onLogout, isOpen
 
   return (
     <>
-      {/* Mobile backdrop */}
       {isOpen && (
-        <div
-          className="fixed inset-0 bg-black/60 z-20 md:hidden"
-          onClick={onClose}
-        />
+        <div className="fixed inset-0 bg-black/60 z-20 md:hidden" onClick={onClose} />
       )}
 
-      {/* Sidebar */}
       <aside className={`
         fixed top-0 left-0 h-full z-30 w-64
         bg-zinc-950 border-r border-zinc-800
@@ -40,22 +35,14 @@ export default function Sidebar({ role, activeView, onNavigate, onLogout, isOpen
         md:static md:translate-x-0 md:z-auto md:w-60
         ${isOpen ? 'translate-x-0' : '-translate-x-full'}
       `}>
-        {/* Logo */}
         <div className="px-6 py-6 border-b border-zinc-800 flex items-center justify-between">
           <div>
             <div className="text-orange-500 text-2xl font-black tracking-tighter">ALPHA GYM</div>
             <div className="text-zinc-600 text-xs tracking-widest uppercase mt-0.5">Platform</div>
           </div>
-          {/* Close button — mobile only */}
-          <button
-            onClick={onClose}
-            className="md:hidden text-zinc-500 hover:text-white transition-colors"
-          >
-            ✕
-          </button>
+          <button onClick={onClose} className="md:hidden text-zinc-500 hover:text-white transition-colors">✕</button>
         </div>
 
-        {/* Navigation */}
         <nav className="flex-1 px-3 py-4 flex flex-col gap-1">
           {role === 'admin' && (
             <>
@@ -63,14 +50,18 @@ export default function Sidebar({ role, activeView, onNavigate, onLogout, isOpen
               {navItem('manage-owners', t('nav_manage_owners'), '🏢')}
             </>
           )}
+
           {role === 'owner' && (
             <>
-              <p className="text-zinc-600 text-xs uppercase tracking-widest px-4 py-2">{t('nav_management')}</p>
+              <p className="text-zinc-600 text-xs uppercase tracking-widest px-4 py-2">{t('nav_overview')}</p>
+              {navItem('dashboard', t('nav_dashboard'), '📊')}
+              <p className="text-zinc-600 text-xs uppercase tracking-widest px-4 py-2 mt-2">{t('nav_management')}</p>
               {navItem('add-member', t('nav_add_member'), '➕')}
               {navItem('all-members', t('nav_all_members'), '👥')}
               {navItem('coaches', t('nav_coaches'), '🏋️')}
             </>
           )}
+
           {role === 'coach' && (
             <>
               <p className="text-zinc-600 text-xs uppercase tracking-widest px-4 py-2">{t('nav_coaching')}</p>
@@ -79,7 +70,6 @@ export default function Sidebar({ role, activeView, onNavigate, onLogout, isOpen
           )}
         </nav>
 
-        {/* Logout */}
         <div className="px-3 py-4 border-t border-zinc-800">
           <button
             onClick={onLogout}
