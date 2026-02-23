@@ -24,8 +24,9 @@ function App() {
   const [sidebarOpen, setSidebarOpen] = useState(false)
 
   useEffect(() => {
+    let initialized = false
+
     const loadProfile = async (session) => {
-      // Use email from session directly — no extra getUser() round trip
       const { data, error } = await supabase.rpc('get_my_profile')
       if (data && !error) {
         setProfile({ ...data, email: session?.user?.email })
@@ -42,20 +43,26 @@ function App() {
       setLoading(false)
     }
 
+    // Initial session check on mount
     supabase.auth.getSession().then(({ data: { session } }) => {
+      initialized = true
       setSession(session)
       if (session) loadProfile(session)
       else setLoading(false)
     })
 
-    // Only listen for logout — never reset view on token refresh or re-auth
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
       if (event === 'SIGNED_OUT') {
         setSession(null)
         setProfile(null)
         setActiveView(null)
         setLoading(false)
+      } else if (event === 'SIGNED_IN' && session && initialized) {
+        // initialized guard prevents double-fetch on page load
+        setSession(session)
+        loadProfile(session)
       }
+      // TOKEN_REFRESHED ignored to prevent tab-switch resets
     })
 
     return () => subscription.unsubscribe()
