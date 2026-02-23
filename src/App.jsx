@@ -2,13 +2,15 @@ import { useState, useEffect } from 'react'
 import { supabase } from './supabaseClient'
 import { useLanguage } from './context/LanguageContext'
 import Login from './Login'
-import AddMember from './AddMember'
-import MemberList from './MemberList'
-import CoachesList from './CoachesList'
-import OwnerDashboard from './OwnerDashboard'
-import ProfilePage from './ProfilePage'
 import Sidebar from './Sidebar'
 import AdminPanel from './AdminPanel'
+import AdminAnalytics from './AdminAnalytics'
+import OwnerDashboard from './OwnerDashboard'
+import MemberList from './MemberList'
+import CoachesList from './CoachesList'
+import CoachDashboard from './CoachDashboard'
+import MemberDashboard from './MemberDashboard'
+import ProfilePage from './ProfilePage'
 import SetPassword from './SetPassword'
 import LanguageSwitcher from './components/LanguageSwitcher'
 import ThemeToggle from './components/ThemeToggle'
@@ -22,34 +24,38 @@ function App() {
   const [sidebarOpen, setSidebarOpen] = useState(false)
 
   useEffect(() => {
-    const getUserProfile = async (user) => {
-      const { data } = await supabase
-        .from('profiles')
-        .select('role, first_login, full_name, avatar_url')
-        .eq('id', user.id)
-        .single()
-
-      if (data) {
-        setProfile(data)
-        if (!data.first_login) {
-          if (data.role === 'admin') setActiveView('manage-owners')
-          else if (data.role === 'owner') setActiveView('dashboard')
-          else if (data.role === 'coach') setActiveView('my-clients')
-        }
+    const loadProfile = async (session) => {
+      // Use email from session directly — no extra getUser() round trip
+      const { data, error } = await supabase.rpc('get_my_profile')
+      if (data && !error) {
+        setProfile({ ...data, email: session?.user?.email })
+        setActiveView(prev => {
+          if (prev !== null) return prev
+          if (data.first_login) return prev
+          if (data.role === 'admin') return 'manage-owners'
+          if (data.role === 'owner') return 'dashboard'
+          if (data.role === 'coach') return 'my-clients'
+          if (data.role === 'member') return 'member-home'
+          return prev
+        })
       }
       setLoading(false)
     }
 
     supabase.auth.getSession().then(({ data: { session } }) => {
       setSession(session)
-      if (session) getUserProfile(session.user)
+      if (session) loadProfile(session)
       else setLoading(false)
     })
 
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      setSession(session)
-      if (session) getUserProfile(session.user)
-      else { setProfile(null); setActiveView(null); setLoading(false) }
+    // Only listen for logout — never reset view on token refresh or re-auth
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      if (event === 'SIGNED_OUT') {
+        setSession(null)
+        setProfile(null)
+        setActiveView(null)
+        setLoading(false)
+      }
     })
 
     return () => subscription.unsubscribe()
@@ -69,49 +75,59 @@ function App() {
   if (!session) return <Login />
 
   if (profile?.first_login) return (
-    <SetPassword userId={session.user.id}
-      onComplete={() => setProfile(p => ({ ...p, first_login: false }))} />
+    <SetPassword
+      userId={session.user.id}
+      onComplete={() => setProfile(p => ({ ...p, first_login: false }))}
+    />
   )
 
   const role = profile?.role
 
   const viewTitles = {
     'manage-owners': t('view_manage_owners'),
+    'analytics': t('view_analytics'),
     'dashboard': t('view_dashboard'),
-    'add-member': t('view_add_member'),
     'all-members': t('view_all_members'),
     'coaches': t('view_coaches'),
     'my-clients': t('view_my_clients'),
+    'member-home': t('view_member_home'),
     'profile': t('view_profile'),
   }
 
-  const roleLabel = { admin: t('role_admin'), owner: t('role_owner'), coach: t('role_coach') }
+  const roleLabel = {
+    admin: t('role_admin'),
+    owner: t('role_owner'),
+    coach: t('role_coach'),
+    member: t('role_member'),
+  }
 
   const renderView = () => {
     switch (activeView) {
       case 'manage-owners': return <AdminPanel />
+      case 'analytics': return <AdminAnalytics />
       case 'dashboard': return <OwnerDashboard />
-      case 'add-member': return <AddMember />
       case 'all-members': return <MemberList />
       case 'coaches': return <CoachesList />
+      case 'my-clients': return <CoachDashboard />
+      case 'member-home': return <MemberDashboard />
       case 'profile': return <ProfilePage />
-      case 'my-clients': return (
-        <div className="p-8 border-2 border-dashed border-gray-200 dark:border-zinc-800 rounded-xl text-center text-gray-400 dark:text-zinc-500">
-          {viewTitles['my-clients']} — {t('coming_next')}
-        </div>
-      )
       default: return null
     }
   }
 
   return (
     <div className="min-h-screen bg-gray-50 dark:bg-black text-gray-900 dark:text-white flex overflow-hidden">
-      <Sidebar role={role} activeView={activeView} onNavigate={setActiveView}
-        onLogout={handleLogout} isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)}
-        profile={profile} />
+      <Sidebar
+        role={role}
+        activeView={activeView}
+        onNavigate={setActiveView}
+        onLogout={handleLogout}
+        isOpen={sidebarOpen}
+        onClose={() => setSidebarOpen(false)}
+      />
 
       <main className="flex-1 flex flex-col min-h-screen min-w-0">
-        <header className="border-b border-gray-200 dark:border-zinc-800 bg-white dark:bg-black px-4 md:px-8 py-4 flex items-center justify-between gap-3">
+        <header className="border-b border-gray-200 dark:border-zinc-800 bg-white dark:bg-black px-4 md:px-8 py-4 flex items-center justify-between gap-3 sticky top-0 z-10">
           <div className="flex items-center gap-3 min-w-0">
             <button onClick={() => setSidebarOpen(true)}
               className="md:hidden flex flex-col gap-1.5 p-1.5 text-gray-400 dark:text-zinc-400 hover:text-gray-900 dark:hover:text-white transition-colors shrink-0">
@@ -121,7 +137,7 @@ function App() {
             </button>
             <div className="min-w-0">
               <h1 className="text-base md:text-xl font-black text-gray-900 dark:text-white tracking-tight truncate">
-                {viewTitles[activeView] || 'Dashboard'}
+                {viewTitles[activeView] || 'Alpha Gym'}
               </h1>
               <p className="text-xs text-gray-400 dark:text-zinc-500 uppercase tracking-widest hidden sm:block">
                 {roleLabel[role]}

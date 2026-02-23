@@ -24,22 +24,24 @@ export default function SetPassword({ userId, onComplete }) {
 
     setLoading(true)
 
-    // 1. Update password in Supabase Auth
-    const { error: pwError } = await supabase.auth.updateUser({ password })
-    if (pwError) {
-      setError(pwError.message)
+    try {
+      // 1. Update password in Supabase Auth
+      const { error: pwError } = await supabase.auth.updateUser({ password })
+      if (pwError) throw pwError
+
+      // 2. Flip first_login flag using secure function
+      const { data, error: rpcError } = await supabase.rpc('complete_first_login', {
+        p_user_id: userId,
+      })
+      
+      if (rpcError) throw rpcError
+
       setLoading(false)
-      return
+      onComplete()
+    } catch (err) {
+      setError(err.message || 'An error occurred')
+      setLoading(false)
     }
-
-    // 2. Flip first_login flag
-    await supabase
-      .from('profiles')
-      .update({ first_login: false })
-      .eq('id', userId)
-
-    setLoading(false)
-    onComplete()
   }
 
   return (
